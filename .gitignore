@@ -1,0 +1,10 @@
+# IDE / 本地工具
+.idea/
+.obsidian/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 本地/个案素材（不进仓库；规范已提炼进核心 md）
+Vibecoding踩坑实录.md
