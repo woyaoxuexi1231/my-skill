@@ -72,7 +72,7 @@ public class OrderService {
 ## 5. 缓存抽象与异步（若启用）
 
 - `@Cacheable`：必须能说清缓存名、key、过期/失效；与 Redis 规范一致。
-- `@Async`：必须使用**有界**、命名清晰的线程池；禁止默认无界执行器扛生产流量。
+- `@Async`：必须使用**有界**、命名清晰的线程池；禁止默认无界执行器扛生产流量；禁止用 `Executors` 工厂隐藏无界风险（与模块规范一致）。
 - 未有需求时不要先加 spring-boot-starter-cache / 异步「备用」。
 
 ---
