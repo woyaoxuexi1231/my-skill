@@ -164,11 +164,11 @@ public class CreateOrderRequest {
 一个用例方法按固定顺序组织，每段落用编号步骤注释标出：
 
 ```text
-1️⃣ 校验：参数合法性 + 业务规则（状态是否允许、是否存在冲突）
-2️⃣ 读取：取需要的领域对象（本域 Mapper 或他模块 Service）
-3️⃣ 变更：落库写操作（同一事务内）
-4️⃣ 副作用：发消息 / 清缓存 / 通知（默认事务外）
-5️⃣ 返回：组装 VO 或结果
+① 校验：参数合法性 + 业务规则（状态是否允许、是否存在冲突）
+② 读取：取需要的领域对象（本域 Mapper 或他模块 Service）
+③ 变更：落库写操作（同一事务内）
+④ 副作用：发消息 / 清缓存 / 通知（默认事务外）
+⑤ 返回：组装 VO 或结果
 ```
 
 - 校验与读取放在事务之前，**缩短事务持有时间**。
@@ -195,15 +195,52 @@ public class CreateOrderRequest {
 - 写操作若可能被重复触发（重试、消息重投、用户连点），必须有幂等保障：业务唯一键、状态机判断或幂等表。
 - 重复调用的结果应与首次一致，**禁止**重复扣减、重复下单、重复发通知。
 
-### 2.6 禁止
+### 2.6 跨模块协作（A 需要 B）
+
+**只通过 B 的 Service（或 B 的门面）协作**，不穿透 B 的内部结构。
+
+**允许（按优先级）：**
+
+1. **`A.service → B.service`**（默认）
+2. **`A.service → B.api` 门面**（外部调用方变多、B 内部 Service 太碎时才抽；默认先不建）
+3. **`A.service → biz.mapper`**（仅当是共享表、且不涉及 B 侧业务不变量）
+4. **`common`**（枚举 / 错误码 / 纯技术能力；禁止塞业务规则）
+
+**禁止：**
+
+- `A.controller → B.controller` 或 `B.service`
+- `A.service → B.controller`
+- `A.service → B.mapper`（B 自有表）
+- A 复用 B 的 Request / VO（各模块契约独立）
+- `common` / `config` / `security` 反向依赖业务模块
+- A⇄B 环依赖（成环则把共享部分下沉到 `biz` / `common`，或把编排升到第三个模块）
+
+```text
+依赖总纲
+
+业务模块 → biz / common / security / config    √
+业务模块 A → B.service（或 B.api）             √ 单向
+业务模块 B → A                                 × 成环
+common / config / security → 业务模块          ×
+```
+
+**选型口诀：**
+
+1. 要 B 的业务规则或受保护数据 → **B.service**
+2. 纯共享表、无规则 → **biz.mapper**
+3. 外部调用方多且杂 → **再抽 B.api**
+4. 其它歪路 → 不用
+
+### 2.7 禁止
 
 - 上帝 Service；规则拆散到 Controller / Mapper。
 - 无充分理由把长时间 HTTP/RPC 塞进 DB 事务。
 - 假设 `this.xxx()` 会生效 `@Transactional` / `@Async` / `@Cacheable`。
 - 业务用例藏进无边界 Helper。
 - 在 Service 里感知 HTTP 层（不碰 `HttpServletRequest` / 响应包装细节）。
+- 跨模块穿透与成环（见 §2.6）。
 
-### 2.7 命名
+### 2.8 命名
 
 `{能力}Service`。`Manager` 必须有功能前缀，且不替代 Service 入口职责。
 

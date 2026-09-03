@@ -160,18 +160,18 @@ public UserProfile restoreSession(String token) { }
 
 ### 4.2 写法：编号步骤
 
-用 **`n️⃣` 数字序号**开头，一眼看出这是第几步、一共几步：
+用**圈号数字 `①` `②` `③`**开头，一眼看出这是第几步、一共几步：
 
 ```java
-// 1️⃣ 干什么
-// 2️⃣ 干什么
-// 3️⃣ 干什么
+// ① 干什么
+// ② 干什么
+// ③ 干什么
 ```
 
 每步写两段信息，**先说干什么，必要时补为什么**：
 
 ```java
-// 2️⃣ 查会话：Redis 里没有说明已过期或被踢，按未登录处理
+// ② 查会话：Redis 里没有说明已过期或被踢，按未登录处理
 ```
 
 ### 4.3 步骤数量
@@ -182,12 +182,15 @@ public UserProfile restoreSession(String token) { }
 
 | 场景 | 符号 | 说明 |
 |------|------|------|
-| 步骤序号 | 1️⃣ 2️⃣ 3️⃣ | 默认用法，让步骤可扫读 |
+| 步骤序号 | ① ② ③ | 默认用法，让步骤可扫读 |
 | 警告 / 坑 | ⚠️ | 并发陷阱、不可删的变通、易踩的坑 |
 | 外部依赖 / IO | 🌐 | 跨服务调用、第三方接口（可选） |
 | 性能相关 | ⚡ | 这里做了优化或有性能约束（可选） |
 
-原则：**步骤序号用 emoji 是常态，装饰性 emoji 是例外。** 不要每行都加，不要一串表情刷屏。
+> **序号统一用圈号数字 `①` `②` `③`（U+2460 起），不用 emoji 键帽 `1️⃣` 等。**
+> 键帽序号是「数字 + 变体选择符 + 组合标记」的 emoji 序列，IDEA 等 IDE 的默认等宽字体不渲染，会显示成方框；圈号数字是普通文本字符，任何编辑器、任何字体、任何语言环境都能正常显示。
+
+原则：**步骤序号用圈号数字，装饰性 emoji 是例外。** 不要每行都加，不要一串表情刷屏。
 
 ### 4.5 完整示例
 
@@ -205,19 +208,19 @@ public UserProfile restoreSession(String token) { }
  * @throws BizException {@code SESSION_EXPIRED} 令牌失效、过期或已被踢下线
  */
 public UserProfile restoreSession(String token) {
-    // 1️⃣ 解析并校验签名：失败直接抛，不让无效态继续往下走
+    // ① 解析并校验签名：失败直接抛，不让无效态继续往下走
     SessionClaims claims = tokenCodec.decode(token);
 
-    // 2️⃣ 查会话：Redis 中不存在即视为过期或被踢，不区分两种原因
+    // ② 查会话：Redis 中不存在即视为过期或被踢，不区分两种原因
     Session session = sessionStore.find(claims.sessionId());
     if (session == null) {
         throw new BizException(ErrorCode.SESSION_EXPIRED);
     }
 
-    // 3️⃣ 滑动续期：每次访问顺带延长 TTL，避免活跃用户被登出
+    // ③ 滑动续期：每次访问顺带延长 TTL，避免活跃用户被登出
     sessionStore.extendTtl(session.id(), TTL);
 
-    // 4️⃣ 组装资料快照：只查这一屏需要的字段，不整表捞
+    // ④ 组装资料快照：只查这一屏需要的字段，不整表捞
     return profileAssembler.toSnapshot(session.userId());
 }
 ```
@@ -226,25 +229,25 @@ public UserProfile restoreSession(String token) {
 
 ```java
 public void cancelOrder(Long orderId, String operator) {
-    // 1️⃣ 加行锁查询：并发重复取消时，后到的请求会在这里等到前一个事务结束
+    // ① 加行锁查询：并发重复取消时，后到的请求会在这里等到前一个事务结束
     Order order = orderMapper.selectForUpdate(orderId);
 
-    // 2️⃣ 幂等判断：已取消直接返回，避免重复退库存
+    // ② 幂等判断：已取消直接返回，避免重复退库存
     if (OrderStatus.CANCELED == order.getStatus()) {
         log.info("订单已取消，跳过 orderId={}", orderId);
         return;
     }
 
-    // 3️⃣ 校验可取消状态：已发货的订单必须走售后流程，不能直接取消
+    // ③ 校验可取消状态：已发货的订单必须走售后流程，不能直接取消
     if (!order.getStatus().canCancel()) {
         throw new BizException(ErrorCode.ORDER_CANNOT_CANCEL);
     }
 
-    // 4️⃣ 同一事务内更新状态并退库存：两步必须同成同败
+    // ④ 同一事务内更新状态并退库存：两步必须同成同败
     orderMapper.updateStatus(orderId, OrderStatus.CANCELED);
     inventoryService.release(order.getSkuId(), order.getQuantity());
 
-    // ⚠️ 5️⃣ 通知放在事务提交后：失败只影响通知，不能回滚已完成的取消
+    // ⚠️ ⑤ 通知放在事务提交后：失败只影响通知，不能回滚已完成的取消
     eventPublisher.publish(new OrderCanceledEvent(orderId, operator));
 }
 ```
@@ -336,7 +339,7 @@ GROUP BY u.id;
 ### 原则
 
 - **适当、少量、有辨识度**——不是装饰义务。
-- 步骤序号 emoji 属于**结构化用法**，不在此限（见 §4.4）。
+- 步骤序号用圈号数字 `①` `②` `③`（见 §4.4），是结构化用法，不在此限。
 - **禁止**每条注释、每条日志都加；禁止一串表情刷屏。
 - 同一类事件固定同一 emoji，形成扫读习惯。
 
@@ -344,7 +347,7 @@ GROUP BY u.id;
 
 | 场景 | 说明 |
 |------|------|
-| 行间步骤序号 | 1️⃣ 2️⃣ 3️⃣（默认用法） |
+| 行间步骤序号 | ① ② ③（默认用法） |
 | 警告性说明 | 并发陷阱、不可删的变通、安全注意（⚠️） |
 | 失败 / 降级 / 告警日志 | 让 ERROR/WARN 在控制台更容易被扫到 |
 | 关键路径节点 | 启动完成、定时任务开始/结束、重要业务里程碑 |
@@ -373,7 +376,7 @@ log.error("❌ 扣库存失败 orderId={} skuId={}", orderId, skuId, e);
 
 - 错误注释比没有注释更糟。
 - **不要用注释弥补烂命名**：先改名（如 `calculateAvailableInventory()`），再补真正需要的「为什么」。
-- 代码重构后，步骤编号要重新连续（不要出现 1️⃣ 2️⃣ 5️⃣）。
+- 代码重构后，步骤编号要重新连续（不要出现 ① ② ⑤）。
 
 ---
 
@@ -410,7 +413,7 @@ log.info("start"); log.info("end");
 方法体内**先有步骤注释说明意图**，关键失败点再打日志——注释给读者，日志给线上：
 
 ```java
-// 3️⃣ 调支付网关：超时按未决处理，不重复发起扣款
+// ③ 调支付网关：超时按未决处理，不重复发起扣款
 try {
     PayResult result = payClient.charge(request);
 } catch (TimeoutException e) {
@@ -429,7 +432,7 @@ try {
 - [ ] 无一行流 Javadoc；类/方法注释用富文本（`<p>` / `<ul>` / `@param` / `@return` / `@throws`）  
 - [ ] 类注释写清职责边界与约束  
 - [ ] 方法注释能独立回答「该不该调、怎么调、会出什么事」  
-- [ ] **方法体 ≥10 行或有多个逻辑段落的，有编号步骤注释（1️⃣ 2️⃣ 3️⃣）**  
+- [ ] **方法体 ≥10 行或有多个逻辑段落的，有编号步骤注释（① ② ③）**  
 - [ ] 步骤数 ≤ 7；超过说明方法该拆  
 - [ ] 分支/循环/异常处理写了「为什么走这个分支」  
 - [ ] 重要决策/规则/SQL/事务/并发有「为什么」  
@@ -451,7 +454,7 @@ try {
 - 「这是把方法名翻译了一遍，重写：写清失败行为、副作用、异常条件。」  
 - 「方法体 40 行零注释，补编号步骤注释。」  
 - 「步骤注释只写了『查询用户』，没说为什么这么查。」  
-- 「第 3 步删了，编号还是 1️⃣2️⃣4️⃣，重排。」  
+- 「第 3 步删了，编号还是 ①②④，重排。」  
 - 「失败日志缺 orderId。」  
 - 「这条注释与代码矛盾，更新后再提。」  
 - 「8 步了，先拆方法再补注释。」  

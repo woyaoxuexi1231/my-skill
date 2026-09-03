@@ -1,21 +1,24 @@
-# Java 代码架构
+# Java 总体代码架构
 
-> 范围：只定 **类放哪、模块怎么拼、谁调谁**。不管各层内部怎么写。  
+> 范围：只定 **有哪些层、类放哪、模块怎么拼**。  
+> 不管：各层内部怎么写，也不管谁调用谁。  
 > 固定方案：**业务模块分包 + 模块内 MVC 三层 + 单体**。个人与生产同一套。
 
 ---
 
-## 1. 原则
+## 1. 架构原则
 
 1. **先按业务模块切，再按技术角色分目录**——禁止顶级全局 `controller/` `service/` `mapper/` 大包，禁止 `util` / `manager` / `helper` 万能抽屉当架构。
 2. **能进模块的不进全局**；只有跨模块真正共用的，才进 `common` / `config` / `security`。
-3. **少目录**：没有第二处调用方，不抽公共。
-4. 调用链：`Controller → Service → Mapper`；配置与安全不插进业务链。
+3. **少目录**：没有第二处使用方，不抽公共。
+4. **包结构反映业务边界**，不反映技术潮流；换框架不应导致目录重构。
 5. 未点名：不上微服务、不上「为规范而拆」的多模块构建、不上 DDD/六边形。
+
+**一句话判断**：新人打开 `module/` 目录，能不能一眼看出这个系统有哪几块业务？不能 → 切分有问题。
 
 ---
 
-## 2. 目录
+## 2. 目录结构
 
 ```text
 com.xxx
@@ -31,7 +34,8 @@ com.xxx
     ├── {业务}/                  # 如 teacher / workbench / order
     │   ├── controller/
     │   ├── service/
-    │   └── dto/                 # 仅本模块 Request / VO
+    │   ├── dto/                 # 仅本模块 Request / VO
+    │   └── support/             # 可选：同模块共享的小能力
     ├── biz/                     # 可选：跨端共享表模型与持久化
     │   ├── entity/
     │   ├── mapper/
@@ -43,43 +47,118 @@ resources/
 └── mapper/**/*.xml              # 与 Java mapper 包对应，如 mapper/biz/
 ```
 
+**模块内目录按需取用**：`controller` / `service` / `dto` 是常用三层，`entity` / `mapper` 按表归属放本模块或 `biz`，`support` 只在确有同模块复用时才建。空目录不留。
+
 不因「项目小」改回全局按层分包。
 
 ---
 
-## 3. 东西放哪
+## 3. 模块怎么切
+
+### 3.1 什么算一个业务模块
+
+一个业务模块 = **一组围绕同一业务主体、一起变化的代码**。判断依据：
+
+- 有一批**同主体**的用例（订单的创建/取消/查询）；
+- 共享同一批**表**或同一个领域概念；
+- 通常由**同一个人/同一小组**维护；
+- 它们会**因为同一个业务原因**一起改。
+
+按主体切，不按动作切——`order` 是一个模块，`order-create` / `order-cancel` 各是一个模块就切碎了。
+
+### 3.2 粒度
+
+- **宁粗勿细**：起步时一个模块可以只含一个 Controller + 一个 Service，粒度随业务增长再拆。
+- 模块数量通常与业务主体数量同量级；一个中等系统常见 5~15 个模块。
+- 模块里只有一两个类、且从不增长 → 说明切细了，考虑合并到相邻模块。
+
+### 3.3 什么时候拆模块
+
+满足其一即可拆：
+
+1. 一个模块下明显存在**两个业务主体**，各自用例互不相关。
+2. 模块内类数膨胀（如单个模块超过 20 个类）且能按主体划开。
+3. 一部分需要**独立演进/独立负责人**，与其余部分变更节奏明显不同。
+
+不满足就先不拆——拆模块的成本高于拆类。
+
+### 3.4 什么时候合并模块
+
+- 两个模块**总是同时改**，且互相之间边界模糊。
+- 一个模块只被另一个模块使用，从不单独对外。
+- 拆分后出现了大量「为了绕过边界」的额外抽象。
+
+### 3.5 `biz` 的定位
+
+`biz` 是**跨端共享的数据层**，不是垃圾桶。
+
+| 放 `biz` | 不放 `biz` |
+|----------|-----------|
+| 多个模块共用同一批表（如后台与 C 端共用） | 只有一个模块用的表 → 放该模块 |
+| 跨域只读聚合的 Entity / Row | 业务规则、用例编排 |
+| 共享表的 Mapper 接口与 XML | 某模块私有的查询逻辑 |
+
+**没有跨模块共享的表，就不要建 `biz`。** 单端系统通常不需要这个目录。
+
+### 3.6 门面包 `api`（可选）
+
+当一个模块对外提供的能力变多、且内部 Service 划分较碎时，可在该模块下建 `api` 包，作为**稳定的对外边界**（如 `module.order.api.OrderQueryApi`）。
+
+- **默认不建**：只有一处外部使用时，直接暴露 Service 即可。
+- 门面只做**接口与 DTO 契约**，不复制业务规则。
+- 门面的出入参 DTO 归本模块 `dto`，门面不另起一套类型。
+
+---
+
+## 4. 东西放哪（速查表）
 
 | 类型 | 放哪 | 不要放哪 |
 |------|------|----------|
 | 启动类 | 根包 | 业务逻辑 |
-| Controller | `module.{x}.controller` | 公共包；跨模块调别人的 Controller |
+| Controller | `module.{x}.controller` | 公共包；一个 Controller 塞多个资源 |
 | Service | `module.{x}.service` | `common`；跨所有域的上帝 Service |
-| 本模块入参/出参 | `module.{x}.dto` | Entity 当 API；`Map` 当契约 |
+| 本模块入参/出参 | `module.{x}.dto` | Entity 当 API 类型；`Map` 当契约 |
 | Entity | `module.biz.entity` 或该域自有 entity | 放进 controller/dto |
-| Mapper 接口 | 与实体同域 | Service 里拼 SQL 字符串 |
+| Mapper 接口 | 与实体同域（本模块或 `biz`） | 集中到一个全局 `mapper` 大包 |
 | Mapper XML | `resources/mapper/...` | 与接口路径错位 |
-| 查询投影 Row | `biz.dto` 或模块 dto | `List<Map>` 对外 |
-| `@Configuration` | `config/` | 写业务用例 |
-| 安全 | `security/` | 业务 Service 里手搓鉴权 |
-| 全局异常 / Result | `common` 或 `config`（固定一处） | 每个 Controller 私有一套 |
-| 跨模块枚举/常量 | `common` | 复制魔法字符串 |
-| 「工具类」 | 默认不建（见 §5） | `common.util` 垃圾桶 |
+| 查询投影 Row | `biz.dto` 或模块 `dto` | 与 VO 混用 |
+| 同模块共享能力 | `module.{x}.support` | 一上来就进 `common` |
+| `@Configuration` | `config/` | 与业务类混放 |
+| 安全 | `security/` | 散落在各业务模块 |
+| 全局异常 / Result | `common` 或 `config`（固定一处） | 每个模块各有一套 |
+| 跨模块枚举/常量 | `common` | 各模块复制一份 |
+| 「工具类」 | 默认不建（见 §5.5） | `common.util` 垃圾桶 |
 
 ---
 
-## 4. 配置
+## 5. 全局包职责
 
-`config/` 只做装配与开关：MyBatis、Redis、线程池、Jackson、CORS、MVC、`@ConfigurationProperties` 等。
+### 5.1 `config/`
 
+- 只做**框架与中间件的装配与开关**：MyBatis、Redis、线程池、Jackson、CORS、MVC、`@ConfigurationProperties` 等。
 - 一类关注点一个类，名如 `RedisConfig`、`MybatisPlusConfig`。
 - 不写业务用例（不查业务表、不推流程）。
 - 环境值进 yml；代码只留稳定逻辑。
 
----
+### 5.2 `security/`
 
-## 5. 工具类
+- 认证鉴权基础设施：Filter、Token 编解码、权限模型。
+- 只做身份识别与权限判定，**不写业务用例**。
+- 业务模块不应出现手搓的鉴权逻辑。
 
-**默认不抽。**
+### 5.3 `common/`
+
+- 放**跨模块真正共用**的内核：统一响应 `Result`、分页 `PageResult`、业务异常与错误码、跨模块枚举/常量、极少数无业务纯函数。
+- **≥2 个模块共用才上收**；保持极薄，能不进就不进。
+- 禁止塞入某个模块专有的业务规则；禁止 `CommonUtils` 这类无前缀大杂烩。
+
+### 5.4 `support/`（模块内）
+
+- 同一模块内多个 Service 共享的小能力，功能前缀命名（如 `OrderAmountCalculator`）。
+- 一旦长出业务规则或成为用例入口，就升为 Service。
+- 只被一个 Service 用的东西，留在那个 Service 里做私有方法。
+
+### 5.5 工具类：默认不抽
 
 | 情况 | 做法 |
 |------|------|
@@ -92,71 +171,47 @@ resources/
 
 ---
 
-## 6. 调用方向
+## 6. 架构反模式
 
-### 6.1 模块内
-
-```text
-controller → service → mapper → DB
-                ↘ Redis / HTTP 客户端（明确组件）
-                ↘ 同模块 support
-```
-
-- Controller 只调**本模块** Service。
-- Service 可调：本模块 support、本域/`biz` Mapper、`common`。
-- 禁：Controller → Mapper（除非团队明文约定的极简只读）。
-
-### 6.2 跨模块（A 需要 B）
-
-只通过 **B.service**（或 B 专门门面）协作；不穿透 B 的 Controller / API dto / 自有 Mapper。
-
-**允许（按序）：**
-
-1. **`A.service → B.service`**（默认）  
-2. **`A.service → B.api` 门面**（外模块调用变多、B 内部 Service 太碎时再抽；默认先不建）  
-3. **`A.service → biz.mapper`**（仅共享表、且无 B 侧业务不变量）  
-4. **`common`**（枚举/错误码/纯技术；禁止塞 A/B 业务规则）
-
-**禁止：**
-
-- `A.controller → B.controller` / `B.service`
-- `A.service → B.controller`
-- `A.service → B.mapper`（B 自有表）
-- A 复用 B 的 Request/VO
-- `common` / `config` / `security` → 业务模块
-- A⇄B 环依赖（环则抽到 `biz`/`common`，或把编排升到第三方模块）
-
-```text
-A.controller → A.service ┬→ 本域 mapper（若有）
-                         ├→ biz.mapper
-                         ├→ B.service（或 B.api）
-                         └→ common / 基础设施
-
-B.controller → B.service → …（不回调 A.controller）
-```
-
-### 6.3 依赖总纲
-
-```text
-业务模块 → biz / common / security / config
-业务模块 A → B.service（或 B.api）     √ 单向
-业务模块 B → A                         × 成环
-common / config / security → 业务模块  ×
-```
-
-### 6.4 跨模块选型
-
-1. 要 B 的规则或受保护数据 → **调 B.service**  
-2. 纯共享表、无规则 → **biz.mapper**  
-3. 外呼入口多且乱 → **再抽 B.api**  
-4. 其它歪路 → 不用  
+| 反模式 | 问题 | 正解 |
+|--------|------|------|
+| 顶级 `controller/` `service/` `mapper/` 大包 | 改一个业务要在三个目录间横跳 | 按业务模块分包 |
+| `util` / `common.util` 万能抽屉 | 什么都往里扔，无人负责 | 按 §5.5 就地或进 `support` |
+| 一个模块塞下所有业务 | 等于没分模块 | 按业务主体切（§3.1） |
+| 一个表一个模块 | 模块碎成渣 | 按业务主体聚合 |
+| 全局 `service` 包里放跨所有域的上帝 Service | 任何改动都影响全局 | 规则归各自业务模块 |
+| 为了「复用」提前抽象出公共模块 | 只有一处使用方，白付复杂度 | 用到第二处再抽 |
+| 业务规则散落在 `config` / `security` | 基础设施被业务污染 | 各归其位（§5） |
+| 照搬 DDD 四层 / 六边形目录 | 团队与业务不需要，徒增目录 | 用本篇固定方案 |
 
 ---
 
 ## 7. 加类前三问
 
-1. 属于哪个**业务模块**？没有 → 是否真是全局横切？  
-2. 角色是：用例 / 持久化 / 装配 / 安全 / 契约？  
-3. 若叫 `*Util` / `*Helper` / `*Manager`——能否不抽或改成具体名？  
+1. 属于哪个**业务模块**？没有 → 是否真是全局横切？
+2. 角色是：入口 / 用例 / 持久化 / 装配 / 安全 / 契约？
+3. 若叫 `*Util` / `*Helper` / `*Manager`——能否不抽或改成具体名？
 
 答不清 → 先放进当前 Service，别急建目录。
+
+---
+
+## 8. 核对清单
+
+- [ ] 无顶级 `controller/` `service/` `mapper/` 大包；按业务模块分包  
+- [ ] 模块划分能反映业务主体；新人看 `module/` 能说出系统有哪几块  
+- [ ] 粒度合理：无「一两个类」的空壳模块，也无塞满业务的巨型模块  
+- [ ] 能进模块的不在全局；`common` 只放 ≥2 模块共用的东西且极薄  
+- [ ] `biz` 确因跨端共享表而存在；无共享表则不建  
+- [ ] 无 `util` 万能抽屉；无光秃 `Helper` / `Manager` / `CommonUtils`  
+- [ ] `config` / `security` 无业务用例；全局异常与 Result 固定一处  
+- [ ] 无为空目录与为「以后可能用」预留的包  
+
+**打回语**
+
+- 「按业务模块分包，别建全局 controller/service/mapper 大包。」  
+- 「这个模块只有两个类且从不增长，合并到相邻模块。」  
+- 「只有一处使用方，不要提前抽到 common。」  
+- 「无跨端共享表，biz 目录不该存在。」  
+- 「业务规则进了 config，拿出来放回业务模块。」  
+- 「光秃 Helper/Manager，补功能前缀并说明归属模块。」  
