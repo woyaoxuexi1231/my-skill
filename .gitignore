@@ -1,6 +1,7 @@
 # IDE / 本地工具
 .idea/
 .obsidian/
+.workbuddy
 
 # OS
 .DS_Store
