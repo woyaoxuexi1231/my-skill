@@ -1,4 +1,4 @@
-# Java 模块代码规范
+# Java 分层代码规范
 
 > 本篇：**各层代码怎么写** + Java 通用写法（命名/抽象/模式/Stream/并发/金额/时间等）。  
 > **不管**：业务该怎么规划；业务若强制要求，按要求实现，但仍须符合本篇写法。
@@ -68,9 +68,9 @@
 
 ---
 
-## 1. Controller（`module.{x}.controller`）与 API 契约
+## 1. Controller（`controller`）与 API 契约
 
-**职责**：HTTP——解析请求、触发校验、取认证上下文、调**本模块** Service、映射响应。
+**职责**：HTTP——解析请求、触发校验、取认证上下文、调对应 Service、映射响应。
 
 ### 1.1 统一响应与分页
 
@@ -86,10 +86,10 @@
 ✅ @Valid @RequestBody CreateOrderRequest
 ❌ Result<Map<String, Object>>
 ❌ @RequestBody Map<String, ?>
-❌ 同模块有的接口有 Request、有的用 Map
+❌ 同一资源有的接口有 Request、有的用 Map
 ```
 
-- 入参：本模块 Request + `@Valid`（或统一校验）。
+- 入参：对应 Request + `@Valid`（或统一校验）。
 - 出参：`Result` / `PageResult` + VO；字段与**已约定契约**一致（多了少了都算实现偏差）。
 - Entity 不做出入参；禁止临时改成 `Map` 凑合。
 
@@ -136,7 +136,7 @@ public class CreateOrderRequest {
 ### 1.7 禁止
 
 - 方法里堆业务规则、复杂查询、展示文案拼接。
-- 注入其他模块 Controller / Mapper；Controller 直调外模块 Service。
+- 注入 Controller / Mapper；Controller 不降级直调其它 Controller 或 Mapper。
 - 在 Controller 里开事务、写 SQL、调 Mapper。
 - 无调用方的死接口继续留在代码里。
 
@@ -146,14 +146,14 @@ public class CreateOrderRequest {
 
 ---
 
-## 2. Service（`module.{x}.service`）
+## 2. Service（`service`）
 
-**职责**：用例编排、业务流程实现、**事务边界**、协调 Mapper / 他模块 Service / 外部 IO。
+**职责**：用例编排、业务流程实现、**事务边界**、协调 Mapper / 其它 Service / 外部 IO。
 
 ### 2.1 必须
 
 - 一个对外方法 ≈ 一个用例；写操作明确事务；先校验再改数。
-- 跨模块：`A.service → B.service`（或约定门面）。
+- Service 间协作：`A.service → B.service`，单向，不经过 Controller（见 §2.6）。
 - **依赖用构造器注入**（或 `@RequiredArgsConstructor` + `final` 字段）；**事务标注在本层 public 方法上**。
 - 需要把字段更新为 `null` 时，使用能真正写出 null 的方式（如 `UpdateWrapper` / 字段策略）；禁止 update 被框架跳过 null 却当成功。
 - 返回结构化原子字段；禁止 HTML/UI 展示拼接。
@@ -165,7 +165,7 @@ public class CreateOrderRequest {
 
 ```text
 ① 校验：参数合法性 + 业务规则（状态是否允许、是否存在冲突）
-② 读取：取需要的领域对象（本域 Mapper 或他模块 Service）
+② 读取：取需要的领域对象（对应 Mapper 或其它 Service）
 ③ 变更：落库写操作（同一事务内）
 ④ 副作用：发消息 / 清缓存 / 通知（默认事务外）
 ⑤ 返回：组装 VO 或结果
@@ -195,41 +195,42 @@ public class CreateOrderRequest {
 - 写操作若可能被重复触发（重试、消息重投、用户连点），必须有幂等保障：业务唯一键、状态机判断或幂等表。
 - 重复调用的结果应与首次一致，**禁止**重复扣减、重复下单、重复发通知。
 
-### 2.6 跨模块协作（A 需要 B）
+### 2.6 Service 间协作与分层调用
 
-**只通过 B 的 Service（或 B 的门面）协作**，不穿透 B 的内部结构。
+**调度单向递减**：`controller → service → mapper`；跨用例协作只走 Service，不穿透其它层，不绕过边界。
 
 **允许（按优先级）：**
 
-1. **`A.service → B.service`**（默认）
-2. **`A.service → B.api` 门面**（外部调用方变多、B 内部 Service 太碎时才抽；默认先不建）
-3. **`A.service → biz.mapper`**（仅当是共享表、且不涉及 B 侧业务不变量）
-4. **`common`**（枚举 / 错误码 / 纯技术能力；禁止塞业务规则）
+1. `A.service → B.service`（默认，业务用例复用）
+2. `service → mapper` （本用例所属实体对应 Mapper）
+3. 任一层 → `common` / `config` / `security`（枚举 / 错误码 / 纯技术能力；禁止塞业务规则）
+4. 极少数跨用例的「读只剩数据」可经 `mapper` 直读共享表；一旦涉及对方业务不变量 → 必须经对方 Service
 
 **禁止：**
 
-- `A.controller → B.controller` 或 `B.service`
-- `A.service → B.controller`
-- `A.service → B.mapper`（B 自有表）
-- A 复用 B 的 Request / VO（各模块契约独立）
-- `common` / `config` / `security` 反向依赖业务模块
-- A⇄B 环依赖（成环则把共享部分下沉到 `biz` / `common`，或把编排升到第三个模块）
+- `controller → controller`、`controller → mapper`
+- `service → controller`（反向调用，破坏单向递减）
+- `mapper → service`（持久化层反向依赖业务）
+- 跨用例无边界复用他人 Request / VO（需要复用 → 经对应 Service 暴露）
+- `common` / `config` / `security` 反向依赖业务层
+- Service 间成环依赖（成环则把共享部分下沉到 `common`，或改由更高层 Service 编排）
 
 ```text
 依赖总纲
 
-业务模块 → biz / common / security / config    √
-业务模块 A → B.service（或 B.api）             √ 单向
-业务模块 B → A                                 × 成环
-common / config / security → 业务模块          ×
+controller → service → mapper → DB        √ 单向递减
+各层 → common / config / security        √
+service ⇄ service（成环）                 ×
+service → controller（反向）              ×
+mapper → service（反向）                  ×
+common / config / security → 业务层      ×
 ```
 
 **选型口诀：**
 
 1. 要 B 的业务规则或受保护数据 → **B.service**
-2. 纯共享表、无规则 → **biz.mapper**
-3. 外部调用方多且杂 → **再抽 B.api**
-4. 其它歪路 → 不用
+2. 纯共享表、无规则 → **mapper 直读**（仅当不触碰 B 的业务不变量）
+3. 其它歪路 → 不用
 
 ### 2.7 禁止
 
@@ -238,7 +239,7 @@ common / config / security → 业务模块          ×
 - 假设 `this.xxx()` 会生效 `@Transactional` / `@Async` / `@Cacheable`。
 - 业务用例藏进无边界 Helper。
 - 在 Service 里感知 HTTP 层（不碰 `HttpServletRequest` / 响应包装细节）。
-- 跨模块穿透与成环（见 §2.6）。
+- 跨层穿透与成环（见 §2.6）。
 
 ### 2.8 命名
 
@@ -246,18 +247,18 @@ common / config / security → 业务模块          ×
 
 ---
 
-## 3. DTO（`module.{x}.dto`）
+## 3. DTO（`dto`）
 
-**职责**：本模块 API 契约的类型形态（与 §1 配套）。
+**职责**：各层流转的类型形态（与 §1 配套）。按用途分放 `dto.request` / `dto.query` / `dto.response`。
 
 ### 3.1 分类与命名
 
 | 类型 | 用途 | 命名 | 放哪 |
 |------|------|------|------|
-| Request | 写操作入参 | `CreateOrderRequest` / `CancelOrderRequest` | 本模块 `dto` |
-| Query | 列表查询条件 | `OrderPageQuery` | 本模块 `dto` |
-| VO | 接口出参 | `OrderDetailVO` / `OrderListItemVO` | 本模块 `dto` |
-| Row | 联表查询投影 | `OrderWithUserRow` | 本模块或 `biz.dto` |
+| Request | 写操作入参 | `CreateOrderRequest` / `CancelOrderRequest` | `dto.request` |
+| Query | 列表查询条件 | `OrderQuery` | `dto.query` |
+| VO | 接口出参 | `OrderDetailVO` / `OrderListItemVO` | `dto.response` |
+| Row | 联表查询投影 | `OrderWithUserRow` | `dto` |
 
 ### 3.2 必须
 
@@ -270,7 +271,7 @@ common / config / security → 业务模块          ×
 
 - Entity / `Map` 当契约。
 - 巨型 DTO 打天下（一个 VO 塞进所有场景的字段）。
-- 外模块 import 本模块 Request/VO。
+- 跨用例无边界复用他人 Request / VO（应经对应 Service 暴露契约，不直接搬运）。
 - 无意义硬拆凑类（一个字段也要建个 DTO）。
 
 ### 3.4 字段类型选择
@@ -291,7 +292,7 @@ common / config / security → 业务模块          ×
 
 ---
 
-## 4. Entity / Mapper / biz
+## 4. Entity / Mapper
 
 **默认持久化栈：MyBatis-Plus（MP）`BaseMapper` + Lambda（简单单表）+ Mapper XML（仅联表/复杂 SQL）。**
 
@@ -351,28 +352,22 @@ common / config / security → 业务模块          ×
 
 ### 4.5 Service 侧使用约定
 
-- 单表 CRUD/条件查询/条件更新：Service 内用 MP + Lambda 调本域/`biz`（或表所属）Mapper；**不要**为此在 Mapper 接口声明空壳方法再转 XML。
+- 单表 CRUD/条件查询/条件更新：Service 内用 MP + Lambda 调对应 Entity 的 Mapper；**不要**为此在 Mapper 接口声明空壳方法再转 XML。
 - 一涉及第二张表的数据拼装：先写/调 **XML 联表（或一次 SQL）**，不要在 Service 里二次查询再 merge。
 - 分页：单表可用 MP 分页；联表分页在 XML 用数据库分页，避免先全量再内存 page。
 - 批量写用批量方法（如 MP `saveBatch` 并在 JDBC 参数开启批量），**禁止**循环里逐条 `insert`。
 
-### 4.6 biz
-
-- 放跨端共享的 Entity / Mapper（及必要 Row）。
-- 触及某业务模块不变量的更新 → 经该模块 Service，不直捅私有持久化绕过规则。
-
 ---
 
-## 5. config / security / common / support
+## 5. config / security / common
 
 | 包 | 放什么 | 职责边界 | 红线 |
 |----|--------|----------|------|
 | `config/` | 框架与中间件的装配类、开关 | 只装配与开关，**不写业务用例**（不查业务表、不推流程）；一类中间件一个配置类，名如 `RedisConfig` / `MybatisPlusConfig`；密钥、地址、超时全部走外部配置，不写死在代码里 | 禁 `AllConfig` 大杂烩；禁在配置类里调 Service |
 | `security/` | 认证鉴权基础设施、Filter、Token 处理 | 只做身份识别与权限判定，**不写业务用例**；日志不打 Token 与凭据 | 禁在业务 Service 里手搓鉴权；禁把业务规则塞进 Filter |
-| `common/` | 跨模块真正共用的内核：统一响应 `Result`、分页 `PageResult`、业务异常、错误码、跨模块枚举/常量、极少数无业务纯函数 | **≥2 个模块共用才上收**；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个模块的业务规则 |
-| `support/` | 同模块内多个 Service 共享的小能力 | 功能前缀命名（如 `OrderAmountCalculator`）；一旦长出业务规则或成为用例入口，就升为 Service | 禁把用例藏进无边界 Helper |
+| `common/` | 跨层/全局真正共用的内核：统一响应 `Result`、分页 `PageResult`、业务异常、错误码、全局枚举/常量、极少数无业务纯函数 | **跨层/全局真正共用才上收**（响应体、异常体系这类每层都依赖的通用件必上收）；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个业务专有的规则 |
 
-**判断口诀**：一个东西只有一处用 → 留在原地（私有方法）；同模块多处用 → `support`；多模块用且无业务语义 → `common`；带业务规则 → 归对应 Service，不是工具类。
+**判断口诀**：一个东西只有一处用 → 留在原地（私有方法 / 局部）；确实多处复用且无业务语义 → `common`；带业务规则 → 归对应 Service，不是工具类。
 
 ---
 
@@ -470,7 +465,7 @@ common / config / security → 业务模块          ×
 
 - [ ] 类/方法/常量命名有前缀与语义；无光秃 Manager/Helper/Util  
 - [ ] 抽象与模式有**当前**理由；无空 `Service`+`Impl`、无堆砌 Factory/Strategy  
-- [ ] 包与调用方向单向；无跨模块穿透与成环  
+- [ ] 包与调用方向单向递减（controller → service → mapper）；无反向、无跨层穿透与成环  
 
 **Controller / API**
 

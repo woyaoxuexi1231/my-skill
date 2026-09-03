@@ -77,7 +77,7 @@ public class OrderService { }
  * <p><b>事务边界：</b>创建用例的事务在本类方法上，订单落库与扣库存必须同成同败；
  * 方法内不做远程调用，避免长事务占用连接。</p>
  *
- * <p><b>约束：</b>本类不直接感知 HTTP 层，出入参一律用本模块 DTO，不外泄 Entity。</p>
+ * <p><b>约束：</b>本类不直接感知 HTTP 层，出入参一律用 `dto` 契约类型，不外泄 Entity。</p>
  */
 public class OrderService { }
 ```
