@@ -231,6 +231,19 @@ public class RedisConfig {
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+
+    /**
+     * 取消订单。
+     * <ul>
+     *   <li>已取消 → 幂等返回，不重复退库存；</li>
+     *   <li>已发货等不可取消状态 → 抛 {@code ORDER_CANNOT_CANCEL}；</li>
+     *   <li>成功 → 同事务更新状态并退库存。</li>
+     * </ul>
+     *
+     * @param orderId  订单 id
+     * @param operator 操作人
+     * @throws BizException 状态不可取消时
+     */
     public void cancelOrder(Long orderId, String operator) {
         // 1️⃣ 加行锁查询：并发重复取消时，后到的请求在此等待前事务结束
         Order order = orderMapper.selectForUpdate(orderId);

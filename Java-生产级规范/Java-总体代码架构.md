@@ -73,9 +73,9 @@ controller → service → (模块内 mapper 联表 | 全局单表 mapper) → D
 
 ### 3.1 controller —— HTTP 入口层（模块内）
 
-- 只做**接与转**：解析 HTTP（PathVariable/RequestParam/RequestBody）、触发参数校验、取认证上下文、调本模块用例 Service、把结果映射成响应。
+- 只做**接与转**：解析 HTTP（PathVariable/RequestParam/RequestBody）、触发参数校验、取认证上下文、调本模块用例 Service、原样返回 Service 组装好的 VO。
 
-- **不得**写业务规则、开事务、写 SQL、直调 mapper。
+- **不做**字段级装配（组装在模块 Service 完成，见《Java-分层代码规范》§3.2）；**不得**写业务规则、开事务、写 SQL、直调 mapper。
 
 - 一个类对应一个资源集合（`order/controller/OrderController` 管订单接口），一个方法 ≈ 一个用例。
 
