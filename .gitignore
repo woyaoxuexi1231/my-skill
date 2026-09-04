@@ -2,6 +2,7 @@
 .idea/
 .obsidian/
 .workbuddy
+.trae
 
 # OS
 .DS_Store

@@ -314,7 +314,7 @@ common / config / security → 业务模块                             ×
 | 角色 | 位置 | 职责 | 写法 |
 |------|------|------|------|
 | **全局单表 mapper** | 根包 `mapper/` | 单表 CRUD、条件查询、COUNT、存在判定 | `extends BaseMapper<Entity>`，Service 内 Lambda 调用 |
-| **模块内 mapper** | 模块 `order/mapper/` | 多表联查、复杂单表、聚合、子查询、分页 SQL | 配 XML，不继承 BaseMapper（但能定位 statement） |
+| **模块内 mapper** | 模块 `modules/order/mapper/` | 多表联查、复杂单表、聚合、子查询、分页 SQL | 配 XML，不继承 BaseMapper（但能定位 statement） |
 
 **全局单表 mapper（强制规则）：**
 
@@ -334,7 +334,7 @@ public interface OrderMapper extends BaseMapper<Order> {
 **模块内 mapper（联表/复杂 SQL）：**
 
 - 专门承载**多表 JOIN、聚合、子查询、复杂分页**等一次性或业务相关的持久化操作。
-- 放在发起查询的模块 `mapper/` 包下，接口名含业务语义（如 `order/mapper/OrderDetailMapper`）。
+- 放在发起查询的模块 `mapper/` 包下，接口名含业务语义（如 `modules/order/mapper/OrderDetailMapper`）。
 - 不继承 `BaseMapper`（XML 中 `namespace` 指向该接口即可），但方法返回明确类型（Entity 子集、`XxxRow`），**禁 `List<Map>` 对外**。
 - 简单单表走全局单表 mapper，**不要**为省事塞进模块内 mapper。
 
