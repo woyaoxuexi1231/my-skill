@@ -14,6 +14,7 @@
 - 类名必须带**具体能力/业务前缀**，后缀可用 `Service` / `Controller` / `Mapper` / `Manager` / `Helper` / `Common` 等。
 - **允许**：`OrderInventoryManager`、`TokenRefreshHelper`、`PageQueryCommon`
 - **禁止**：光秃的 `Manager`、`Helper`、`Common`、`Util`、`Handler`、`Processor`；以及无前缀的 `CommonUtils` 等垃圾桶。
+- **Mapper 命名**：全局单表 Mapper 用 `{Entity}Mapper`（如 `OrderMapper`），模块内联表 Mapper 用 `{Entity}{业务语义}Mapper`（如 `OrderDetailMapper` 或 `OrderJoinMapper`），避免与全局单表重名冲突。
 
 **方法与变量**
 
@@ -30,7 +31,7 @@
 
 ### 0.2 一类一事与抽象
 
-一个类一种角色：入口 / 用例 / 持久化 / 装配 / 安全 / 契约。
+一个类一种角色：入口 / 用例 / 持久化（单表 / 联表）/ 装配 / 安全 / 契约。
 
 - **默认**：一个实现 → 具体类注入即可，不为「企业范」先抽接口。
 - **允许先有接口的例外**：框架要求、稳定跨模块边界、可测隔离外部依赖——且能说清**当前**理由。
@@ -57,20 +58,20 @@
 |------|----------|
 | 先糊再重构；TODO/空实现冒充完成 | 按规范一次写到可维护 |
 | Service/VO 拼 HTML 或 UI 展示串 | 返回原子字段；展示交前端或专门渲染层 |
-| 单表大查再内存过滤；循环/Stream 里按条查库；**多次单表再内存关联** | 单表 MP+Lambda；联表 XML 一次 SQL；计数用 COUNT |
+| 单表大查再内存过滤；循环/Stream 里按条查库；**多次单表再内存关联** | 单表用全局单表 MP+Lambda；联表用模块内 mapper XML 一次 SQL；计数用 COUNT |
 | 未用到的缓存/MQ/异步/多余抽象先堆上 | 当前用到再加 |
 | 假数据冒充真实业务结果 | 按契约返回空/明确无 |
 | 列表灌详情；`list.size()` 冒充计数 | 列表与详情分离；计数用 COUNT |
 | 页面刷新瀑布式 N 个串行接口 | 合并查询；详情懒加载；角标/KPI 单独优化 |
 | 开发期兼容旧接口/双轨分支 | 改契约/表/脚本；删死代码 |
 | 魔法字符串/数字散落各处 | 枚举或常量，就近定义并命名 |
-| 一笔逻辑散布在多个类里才拼得完整 | 收拢到负责该用例的 Service |
+| 一笔逻辑散布在多个类里才拼得完整 | 收拢到负责该用例的模块 Service |
 
 ---
 
 ## 1. Controller（`controller`）与 API 契约
 
-**职责**：HTTP——解析请求、触发校验、取认证上下文、调对应 Service、映射响应。
+**职责**：HTTP——解析请求、触发校验、取认证上下文、调对应模块 Service、映射响应。
 
 ### 1.1 统一响应与分页
 
@@ -89,8 +90,8 @@
 ❌ 同一资源有的接口有 Request、有的用 Map
 ```
 
-- 入参：对应 Request + `@Valid`（或统一校验）。
-- 出参：`Result` / `PageResult` + VO；字段与**已约定契约**一致（多了少了都算实现偏差）。
+- 入参：对应 `dto/request` + `@Valid`（或统一校验）。
+- 出参：`Result` / `PageResult` + 模块 `dto/response` VO。
 - Entity 不做出入参；禁止临时改成 `Map` 凑合。
 
 ### 1.3 路径与 HTTP 方法
@@ -103,7 +104,7 @@
 
 ### 1.4 参数校验
 
-- 入参校验用 Bean Validation（`@Valid` / `@Validated`），校验注解写在 **Request 类字段**上，不要在 Controller 方法体里手写 `if` 判断。
+- 入参校验用 Bean Validation（`@Valid` / `@Validated`），校验注解写在 **模块 dto/request 类字段**上，不要在 Controller 方法体里手写 `if` 判断。
 - 常用注解：`@NotNull` / `@NotBlank`（字符串）/ `@NotEmpty`（集合）/ `@Size` / `@Min` / `@Max` / `@Pattern` / `@Valid`（嵌套对象）。
 - 校验失败由全局异常处理统一转错误响应，**禁止**每个 Controller 自己 `BindingResult` 手搓返回。
 - Service 侧只校验**业务规则**（如「订单已发货不可取消」），不重复校验格式。
@@ -136,24 +137,25 @@ public class CreateOrderRequest {
 ### 1.7 禁止
 
 - 方法里堆业务规则、复杂查询、展示文案拼接。
-- 注入 Controller / Mapper；Controller 不降级直调其它 Controller 或 Mapper。
+- 注入其它模块 Controller / Mapper；Controller 不降级直调其它模块 Controller 或 Mapper。
 - 在 Controller 里开事务、写 SQL、调 Mapper。
 - 无调用方的死接口继续留在代码里。
 
 ### 1.8 命名
 
-`{资源}Controller`。方法名与路径语义一致。
+`{资源}Controller`，放在对应模块 `controller/` 包。方法名与路径语义一致。
 
 ---
 
 ## 2. Service（`service`）
 
-**职责**：用例编排、业务流程实现、**事务边界**、协调 Mapper / 其它 Service / 外部 IO。
+**职责**：用例编排、业务流程实现、**事务边界**、协调 Mapper / 其它模块 Service / 外部 IO。同时是本模块对外的**门面**。
 
 ### 2.1 必须
 
 - 一个对外方法 ≈ 一个用例；写操作明确事务；先校验再改数。
-- Service 间协作：`A.service → B.service`，单向，不经过 Controller（见 §2.6）。
+- 模块内协作：`A.service → B.service`，单向，不经过 Controller。
+- **跨模块协作**：只经对方模块 Service 门面；纯共享表数据可跨模块**只读单表直查**（用全局单表 mapper），不触碰对方业务不变量。
 - **依赖用构造器注入**（或 `@RequiredArgsConstructor` + `final` 字段）；**事务标注在本层 public 方法上**。
 - 需要把字段更新为 `null` 时，使用能真正写出 null 的方式（如 `UpdateWrapper` / 字段策略）；禁止 update 被框架跳过 null 却当成功。
 - 返回结构化原子字段；禁止 HTML/UI 展示拼接。
@@ -164,11 +166,11 @@ public class CreateOrderRequest {
 一个用例方法按固定顺序组织，每段落用编号步骤注释标出：
 
 ```text
-① 校验：参数合法性 + 业务规则（状态是否允许、是否存在冲突）
-② 读取：取需要的领域对象（对应 Mapper 或其它 Service）
-③ 变更：落库写操作（同一事务内）
-④ 副作用：发消息 / 清缓存 / 通知（默认事务外）
-⑤ 返回：组装 VO 或结果
+1️⃣ 校验：参数合法性 + 业务规则（状态是否允许、是否存在冲突）
+2️⃣ 读取：取需要的领域对象（对应 Mapper 或其它模块 Service）
+3️⃣ 变更：落库写操作（同一事务内）
+4️⃣ 副作用：发消息 / 清缓存 / 通知（默认事务外）
+5️⃣ 返回：组装 VO 或结果
 ```
 
 - 校验与读取放在事务之前，**缩短事务持有时间**。
@@ -195,41 +197,40 @@ public class CreateOrderRequest {
 - 写操作若可能被重复触发（重试、消息重投、用户连点），必须有幂等保障：业务唯一键、状态机判断或幂等表。
 - 重复调用的结果应与首次一致，**禁止**重复扣减、重复下单、重复发通知。
 
-### 2.6 Service 间协作与分层调用
+### 2.6 模块间协作与分层调用
 
-**调度单向递减**：`controller → service → mapper`；跨用例协作只走 Service，不穿透其它层，不绕过边界。
+**模块内调度单向递减**：`controller → service → (模块内 mapper 联表 | 全局单表 mapper) → DB`。
 
-**允许（按优先级）：**
+**跨模块协作（按优先级）：**
 
-1. `A.service → B.service`（默认，业务用例复用）
-2. `service → mapper` （本用例所属实体对应 Mapper）
+1. `A.service → B.service`（default，经对方门面调用业务用例）
+2. 纯共享表数据可跨模块**只读**单表直查（用全局单表 mapper + entity），不涉及对方业务不变量
 3. 任一层 → `common` / `config` / `security`（枚举 / 错误码 / 纯技术能力；禁止塞业务规则）
-4. 极少数跨用例的「读只剩数据」可经 `mapper` 直读共享表；一旦涉及对方业务不变量 → 必须经对方 Service
 
 **禁止：**
 
-- `controller → controller`、`controller → mapper`
-- `service → controller`（反向调用，破坏单向递减）
-- `mapper → service`（持久化层反向依赖业务）
-- 跨用例无边界复用他人 Request / VO（需要复用 → 经对应 Service 暴露）
-- `common` / `config` / `security` 反向依赖业务层
-- Service 间成环依赖（成环则把共享部分下沉到 `common`，或改由更高层 Service 编排）
+- `controller → controller`、`controller → 其它模块 mapper`
+- `service → 其它模块 controller`（反向调用，破坏单向递减）
+- 穿透其它模块内部类（如 `A.service` 直接用 `B` 模块的内部 mapper）
+- 跨模块无边界复用他人 Request / VO（需要复用 → 经对应模块 Service 暴露）
+- `common` / `config` / `security` 反向依赖业务模块
+- 模块间成环依赖（成环则把共享部分下沉到 `common`，或改由更高层编排）
 
 ```text
 依赖总纲
 
-controller → service → mapper → DB        √ 单向递减
-各层 → common / config / security        √
-service ⇄ service（成环）                 ×
-service → controller（反向）              ×
-mapper → service（反向）                  ×
-common / config / security → 业务层      ×
+controller → service → (模块 mapper 联表 | 全局单表 mapper) → DB   √ 单向递减
+业务模块 → common / config / security / entity / 全局单表 mapper   √
+业务模块 → 其它业务模块：只经对方 service 门面；共享表只读单表直查    √
+模块间穿透（A 直接用 B 的内部 mapper/类）                          ×
+service → 其它模块 controller                                    ×
+common / config / security → 业务模块                             ×
 ```
 
 **选型口诀：**
 
 1. 要 B 的业务规则或受保护数据 → **B.service**
-2. 纯共享表、无规则 → **mapper 直读**（仅当不触碰 B 的业务不变量）
+2. 纯共享表、单表只读、无规则 → **全局单表 mapper 直读**（仅当不触碰 B 的业务不变量）
 3. 其它歪路 → 不用
 
 ### 2.7 禁止
@@ -243,35 +244,35 @@ common / config / security → 业务层      ×
 
 ### 2.8 命名
 
-`{能力}Service`。`Manager` 必须有功能前缀，且不替代 Service 入口职责。
+`{能力}Service`，放在对应模块 `service/` 包。`Manager` 必须有功能前缀，且不替代 Service 入口职责。
 
 ---
 
 ## 3. DTO（`dto`）
 
-**职责**：各层流转的类型形态（与 §1 配套）。按用途分放 `dto.request` / `dto.query` / `dto.response`。
+**职责**：各层流转的类型形态（与 §1 配套）。按用途分放 `dto.request` / `dto.query` / `dto.response`。DTO 按所属模块划分，模块间契约复用经对方 Service 门面暴露。
 
 ### 3.1 分类与命名
 
 | 类型 | 用途 | 命名 | 放哪 |
 |------|------|------|------|
-| Request | 写操作入参 | `CreateOrderRequest` / `CancelOrderRequest` | `dto.request` |
-| Query | 列表查询条件 | `OrderQuery` | `dto.query` |
-| VO | 接口出参 | `OrderDetailVO` / `OrderListItemVO` | `dto.response` |
-| Row | 联表查询投影 | `OrderWithUserRow` | `dto` |
+| Request | 写操作入参 | `CreateOrderRequest` / `CancelOrderRequest` | 模块 `dto.request` |
+| Query | 列表查询条件 | `OrderQuery` | 模块 `dto.query` |
+| VO | 接口出参 | `OrderDetailVO` / `OrderListItemVO` | 模块 `dto.response` |
+| Row | 联表查询投影 | `OrderWithUserRow` | 发起模块的 `dto` |
 
 ### 3.2 必须
 
 - Request / VO 分开，**禁止**一个类既当入参又当出参。
 - 校验注解放 Request（见 §1.4）；VO 不带校验注解。
-- 组装转换在 Service（或明确的组装点），**禁止**在 Controller 里逐个字段 `set`。
+- 组装转换在模块 Service（或明确的组装点），**禁止**在 Controller 里逐个字段 `set`。
 - 字段与**已约定契约**一致，不擅自增删字段。
 
 ### 3.3 禁止
 
 - Entity / `Map` 当契约。
 - 巨型 DTO 打天下（一个 VO 塞进所有场景的字段）。
-- 跨用例无边界复用他人 Request / VO（应经对应 Service 暴露契约，不直接搬运）。
+- 跨模块无边界复用他人 Request / VO（应经对应模块 Service 暴露契约，不直接搬运）。
 - 无意义硬拆凑类（一个字段也要建个 DTO）。
 
 ### 3.4 字段类型选择
@@ -296,65 +297,114 @@ common / config / security → 业务层      ×
 
 **默认持久化栈：MyBatis-Plus（MP）`BaseMapper` + Lambda（简单单表）+ Mapper XML（仅联表/复杂 SQL）。**
 
-### 4.1 Entity
+**持久化分轨原则**：单表查询走**全局单表 mapper**（继承 MP `BaseMapper` + Lambda）；多表联查 / 复杂 SQL 走**发起模块的模块内 mapper**（配 XML）。
+
+### 4.1 Entity（全局，放外面）
 
 - 与表映射；通常继承项目约定的 MP 基类（若有）；不依赖 Spring/HTTP；**不做 API 出入参**。
+- 全模块共用同一套 entity；跨模块只读共享表就是引这套 entity + 全局单表 mapper 做单表查询。
 - 字段与列对应；用 MP 元数据/Lambda 可引用的属性名，避免魔法列名散落。
 - 写入值与列类型/格式一致（如 JSON 列不要写入非法空串）。
 - 命名与领域一致；禁无意义叠词。
 - 字段类型遵循 §3.4（金额 `BigDecimal`、时间 `LocalDateTime`、状态用枚举并配枚举处理器）。
 - 逻辑删除字段由 MP 统一配置，**禁止**在每个查询里手写 `eq("is_deleted", 0)`。
 
-### 4.2 Mapper 接口（强制）
+### 4.2 Mapper 分轨：全局单表 vs 模块内联表
 
-- **每一个** `@Mapper` 接口必须 `extends BaseMapper<对应 Entity>`。未继承 → 打回。
-- 纯跨域只读聚合（大屏/报表）无「业务主表」时：仍须 `extends BaseMapper<驱动表 Entity>`（如学校/晨检），接口注释写明「仅聚合 XML，简单单表归对应业务 Mapper」；**禁止**在该 Mapper 上再写简单单表方法。
-- 同一 Entity 可有多个 Mapper Bean；简单 CRUD/条件查询落在**该表的业务 Mapper**上，用 Lambda，不要为图省事挂到「功能向」联表 Mapper。
+| 角色 | 位置 | 职责 | 写法 |
+|------|------|------|------|
+| **全局单表 mapper** | 根包 `mapper/` | 单表 CRUD、条件查询、COUNT、存在判定 | `extends BaseMapper<Entity>`，Service 内 Lambda 调用 |
+| **模块内 mapper** | 模块 `order/mapper/` | 多表联查、复杂单表、聚合、子查询、分页 SQL | 配 XML，不继承 BaseMapper（但能定位 statement） |
 
-### 4.3 查询怎么写（强制分层）
+**全局单表 mapper（强制规则）：**
+
+- **每一个** `@Mapper` 接口 `extends BaseMapper<对应 Entity>`。
+- **只做单表查询**：单表 CRUD、条件查询、单表 COUNT、存在判定、单表条件更新/删除。
+- **禁止**写联表 SQL、禁止写无 JOIN 的简单单表查询（后者直接用 Lambda 即可）。
+- 命名：`{Entity}Mapper`（如 `OrderMapper`、`UserMapper`）。
+
+```java
+// ✅ 全局单表 mapper：仅单表
+@Mapper
+public interface OrderMapper extends BaseMapper<Order> {
+    // 没有自定义方法 —— 单表直接用 BaseMapper + Lambda
+}
+```
+
+**模块内 mapper（联表/复杂 SQL）：**
+
+- 专门承载**多表 JOIN、聚合、子查询、复杂分页**等一次性或业务相关的持久化操作。
+- 放在发起查询的模块 `mapper/` 包下，接口名含业务语义（如 `order/mapper/OrderDetailMapper`）。
+- 不继承 `BaseMapper`（XML 中 `namespace` 指向该接口即可），但方法返回明确类型（Entity 子集、`XxxRow`），**禁 `List<Map>` 对外**。
+- 简单单表走全局单表 mapper，**不要**为省事塞进模块内 mapper。
+
+```java
+// ✅ 模块内 mapper：联表/复杂 SQL
+@Mapper
+public interface OrderDetailMapper {
+    List<OrderDetailRow> listDetailByUserId(@Param("userId") Long userId);
+}
+```
+
+```xml
+<!-- 配 XML，namespace 指向模块内 mapper -->
+<mapper namespace="com.xxx.order.mapper.OrderDetailMapper">
+    <select id="listDetailByUserId" resultType="com.xxx.order.dto.OrderDetailRow">
+        SELECT o.id, o.status, oi.sku_name, oi.quantity
+        FROM orders o
+        LEFT JOIN order_item oi ON oi.order_id = o.id
+        WHERE o.user_id = #{userId}
+        ORDER BY o.created_at DESC
+    </select>
+</mapper>
+```
+
+### 4.3 查询怎么写（强制分轨）
 
 | 场景 | 写法 | 说明 |
 |------|------|------|
-| **简单单表**（`eq`/`in`/可空条件、单表 COUNT、单表条件 UPDATE/DELETE、单列列表） | **Service 内** MP + `LambdaQueryWrapper` / `LambdaUpdateWrapper` | **禁止**为此在 Mapper 接口加方法、**禁止**写 XML |
-| **联表 / 多表** | **默认 Mapper XML** | JOIN、多表过滤、聚合、复杂排序/分页在 SQL 一次完成 |
-| **复杂单表**（重聚合、子查询、`INSERT…SELECT`、多表 UPDATE JOIN 等） | 优先 XML | 不要为了「全用 Lambda」把 SQL 拧成不可读 |
+| **简单单表**（`eq`/`in`/可空条件、单表 COUNT、单表条件 UPDATE/DELETE、单列列表） | **模块 Service 内** 全局单表 mapper + `LambdaQueryWrapper` / `LambdaUpdateWrapper` | **禁止**为此在模块内 mapper 加方法、**禁止**写 XML |
+| **联表 / 多表** | **默认模块内 mapper + XML** | JOIN、多表过滤、聚合、复杂排序/分页在 SQL 一次完成 |
+| **复杂单表**（重聚合、子查询、`INSERT…SELECT`、多表 UPDATE JOIN 等） | 优先模块内 mapper + XML | 不要为了「全用 Lambda」把 SQL 拧成不可读 |
 
 ```text
-✅ 单表：mapper.selectList(new LambdaQueryWrapper<Entity>().eq(Entity::getStatus, status))
-✅ 单表 COUNT：mapper.selectCount(lambda…)；禁 XML 再包一层
-✅ 联表：XxxMapper.xml 里 JOIN + WHERE + 分页；返回 Entity / XxxRow / 明确类型
-❌ 无 JOIN 的简单 SELECT/COUNT/UPDATE 写进 Mapper XML（即使同文件已有联表方法）
-❌ Mapper 接口不继承 BaseMapper
+✅ 单表：orderMapper.selectList(new LambdaQueryWrapper<Order>().eq(Order::getStatus, status))
+✅ 单表 COUNT：orderMapper.selectCount(lambda…)；禁 XML 再包一层
+✅ 联表：OrderDetailMapper.xml 里 JOIN + WHERE + 分页；返回 OrderDetailRow / 明确类型
+✅ 跨模块只读共享表：用全局单表 mapper + entity 做单表条件查询（不涉及对方业务不变量）
+❌ 无 JOIN 的简单 SELECT/COUNT/UPDATE 写进模块内 mapper XML
+❌ 全局单表 mapper 写联表方法（违反分轨）
 ❌ 先 selectList 表 A，再按 id 循环 select 表 B（N+1）
 ❌ 两次（或多次）单表查出 List，再在 Java 里 for/stream 做关联、拼装「假 JOIN」
-❌ 用 selectMaps / List<Map> 当对外或跨层契约
+❌ 用 selectMaps / List<Map> 当对外或跨模块契约
 ❌ Mapper XML 使用 `<sql>` / `<include refid>` 抽公共片段
 ```
 
 **决策口诀（写 Mapper 前先问）：**
 
-1. 只有一张表、且条件/更新可用 Lambda 表达？→ **Service Lambda**，不要碰 XML。  
-2. 需要第二张表的列、JOIN、EXISTS、聚合跨表？→ **XML**。  
-3. 「联表必须 XML」**不等于**「本域所有查询都进 XML」；旁边已有联表方法时，简单兄弟查询仍归 Lambda。
+1. 只有一张表、且条件/更新可用 Lambda 表达？→ **模块 Service 内调全局单表 mapper + Lambda**，不要碰 XML。
+2. 需要第二张表的列、JOIN、EXISTS、聚合跨表？→ **模块内 mapper + XML**。
+3. 「联表必须 XML」**不等于**「本模块所有查询都进模块内 mapper」；简单单表兄弟查询仍归全局单表 mapper + Lambda。
 
 **绝对禁止：两个（或多个）单表查询，再在内存里关联数据。**  
 关联、聚合、按关联条件过滤/排序/分页 → 必须在 SQL（XML）完成。
 
 ### 4.4 Mapper 职责与其它红线
 
-- Mapper 只做持久化与查询；**不写业务编排、不调 Service**。
+- **全局单表 mapper**：只做单表持久化；**不写业务编排、不调 Service**。
+- **模块内 mapper**：只做持久化查询；**不写业务编排、不调 Service、不调其它模块 mapper**。
 - 方法名表意：`selectById`、`countByStatus`、`listDetailByOrderId`；禁 `query1`。自定义方法仅用于 XML 联表/复杂 SQL。
 - 联表/投影结果：优先明确类型（Entity 子集、`XxxRow`）；禁 `List<Map>` 对外。
-- 只要数量 → 单表用 `selectCount(lambda)`；跨表用 XML `COUNT`；禁 `selectList` 再 `.size()`。
+- 只要数量 → 单表用全局单表 mapper `selectCount(lambda)`；跨表用模块内 XML `COUNT`；禁 `selectList` 再 `.size()`。
 - 需要更新为 `null`：用能写出 null 的更新方式（`LambdaUpdateWrapper` set 等 / 字段策略），禁止「调用了 update 但 null 被跳过」。
 - XML 文件路径与 Java mapper 包结构保持一致；复杂 SQL 需注释说明「为什么这样写」（JOIN 组织、条件位置、分页策略）。
 - **禁止** MyBatis `<sql>` 片段与 `<include refid="…"/>`。每条语句写完整 SQL；列清单重复可接受，换可读与可搜，不要跨语句抽公共片段。
 
 ### 4.5 Service 侧使用约定
 
-- 单表 CRUD/条件查询/条件更新：Service 内用 MP + Lambda 调对应 Entity 的 Mapper；**不要**为此在 Mapper 接口声明空壳方法再转 XML。
-- 一涉及第二张表的数据拼装：先写/调 **XML 联表（或一次 SQL）**，不要在 Service 里二次查询再 merge。
-- 分页：单表可用 MP 分页；联表分页在 XML 用数据库分页，避免先全量再内存 page。
+- 单表 CRUD/条件查询/条件更新：模块 Service 内用全局单表 mapper + Lambda 调对应 Entity 的 Mapper；**不要**为此在模块内 mapper 声明空壳方法再转 XML。
+- 一涉及第二张表的数据拼装：先写/调 **模块内 mapper + XML 联表（或一次 SQL）**，不要在 Service 里二次查询再 merge。
+- 分页：单表可用全局单表 mapper + MP 分页；联表分页在模块内 XML 用数据库分页，避免先全量再内存 page。
 - 批量写用批量方法（如 MP `saveBatch` 并在 JDBC 参数开启批量），**禁止**循环里逐条 `insert`。
 
 ---
@@ -363,11 +413,11 @@ common / config / security → 业务层      ×
 
 | 包 | 放什么 | 职责边界 | 红线 |
 |----|--------|----------|------|
-| `config/` | 框架与中间件的装配类、开关 | 只装配与开关，**不写业务用例**（不查业务表、不推流程）；一类中间件一个配置类，名如 `RedisConfig` / `MybatisPlusConfig`；密钥、地址、超时全部走外部配置，不写死在代码里 | 禁 `AllConfig` 大杂烩；禁在配置类里调 Service |
+| `config/` | 框架与中间件的全局装配类、开关 | 只装配与开关，**不写业务用例**（不查业务表、不推流程）；一类中间件一个配置类，名如 `RedisConfig` / `MybatisPlusConfig`；密钥、地址、超时全部走外部配置，不写死在代码里 | 禁 `AllConfig` 大杂烩；禁在配置类里调 Service |
 | `security/` | 认证鉴权基础设施、Filter、Token 处理 | 只做身份识别与权限判定，**不写业务用例**；日志不打 Token 与凭据 | 禁在业务 Service 里手搓鉴权；禁把业务规则塞进 Filter |
-| `common/` | 跨层/全局真正共用的内核：统一响应 `Result`、分页 `PageResult`、业务异常、错误码、全局枚举/常量、极少数无业务纯函数 | **跨层/全局真正共用才上收**（响应体、异常体系这类每层都依赖的通用件必上收）；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个业务专有的规则 |
+| `common/` | 跨模块/全局真正共用的内核：统一响应 `Result`、分页 `PageResult`、业务异常、错误码、全局枚举/常量、领域事件、极少数无业务纯函数 | **跨模块/全局真正共用才上收**（响应体、异常体系这类每层都依赖的通用件必上收）；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个业务模块专有的规则 |
 
-**判断口诀**：一个东西只有一处用 → 留在原地（私有方法 / 局部）；确实多处复用且无业务语义 → `common`；带业务规则 → 归对应 Service，不是工具类。
+**判断口诀**：一个东西只有一处用 → 留在原地（模块内私有方法 / 局部）；确实多处复用且无业务语义 → `common`；带业务规则 → 归对应模块 Service，不是工具类。
 
 ---
 
@@ -415,7 +465,7 @@ common / config / security → 业务层      ×
 
 - 能提升可读性时再用；不要用 Stream 把简单逻辑伪装得很高级。
 - **禁止**在 Stream 中藏：数据库查询、网络请求、复杂副作用、嵌套业务编排。
-- 尤其禁止 `stream().map(id -> mapper.selectById(id))` 制造 N+1。
+- 尤其禁止 `stream().map(id -> orderMapper.selectById(id))` 制造 N+1。
 - 链式超过 3~4 个操作时，考虑拆成多行或改用普通循环，可读性优先于「函数式」。
 
 ### 8.2 集合
@@ -465,12 +515,14 @@ common / config / security → 业务层      ×
 
 - [ ] 类/方法/常量命名有前缀与语义；无光秃 Manager/Helper/Util  
 - [ ] 抽象与模式有**当前**理由；无空 `Service`+`Impl`、无堆砌 Factory/Strategy  
-- [ ] 包与调用方向单向递减（controller → service → mapper）；无反向、无跨层穿透与成环  
+- [ ] 持久化分轨：单表走全局单表 mapper（`extends BaseMapper` + Lambda）；联表/复杂 SQL 走发起模块的模块内 mapper + XML  
+- [ ] 无全局单表 mapper 写联表、无模块内 mapper 写简单单表  
+- [ ] 调度单向：controller → service → (模块 mapper 联表 | 全局单表 mapper)；跨模块只经 Service 门面；无反向、无穿透、无成环  
 
 **Controller / API**
 
 - [ ] 统一 Result/分页；无 `Map`；校验失败可感知；列表有分页形态  
-- [ ] 路径与 HTTP 方法语义正确；入参用 Request + `@Valid`  
+- [ ] 路径与 HTTP 方法语义正确；入参用模块 Request + `@Valid`  
 - [ ] Controller 无业务、无事务、无 SQL；当前用户从统一上下文取  
 
 **Service**
@@ -482,8 +534,8 @@ common / config / security → 业务层      ×
 
 **持久化**
 
-- [ ] Mapper 均 `extends BaseMapper`  
-- [ ] SQL：单表 MP+Lambda（无 JOIN 不进 XML）；联表 XML 无 `<sql>`/`<include>`；**无二次单表内存关联**；无 N+1；Stream 无 IO  
+- [ ] 全局单表 mapper 均 `extends BaseMapper`；无联表；无自定义方法改写简单单表  
+- [ ] 模块内 mapper 配 XML；SQL：联表完整 JOIN；无 `<sql>`/`<include>`；**无二次单表内存关联**；无 N+1；Stream 无 IO  
 - [ ] 计数用 COUNT；分页在数据库完成；批量写未退化为循环单条  
 
 **通用**
@@ -499,14 +551,15 @@ common / config / security → 业务层      ×
 
 - 「对外契约出现 Map，打回。」  
 - 「展示拼接不应出现在 Service。」  
-- 「Mapper 未继承 BaseMapper，打回。」  
-- 「简单单表必须 Lambda；禁止无 JOIN 的 SQL 进 XML。」  
+- 「全局单表 Mapper 未继承 BaseMapper，打回。」  
+- 「全局单表 Mapper 写了联表，打回；联表放发起模块的模块内 mapper。」  
+- 「简单单表必须 Lambda；禁止无 JOIN 的 SQL 进模块内 XML。」  
 - 「Mapper XML 禁用 `<sql>` / `<include>`，语句写完整。」  
 - 「联表必须 XML；禁止两次单表再在内存关联。」  
 - 「关联/计数写 SQL；Stream/循环里不准查库。」  
 - 「金额用了 double，改 BigDecimal。」  
 - 「BigDecimal 用 equals 比较，改 compareTo。」  
-- 「Controller 里写了业务规则，下沉到 Service。」  
+- 「Controller 里写了业务规则，下沉到模块 Service。」  
 - 「校验写在方法体里，改用 `@Valid` + Request 注解。」  
 - 「查询无结果返回了 null，改空集合/Optional。」  
 - 「重复调用会重复扣减，补幂等。」  
@@ -517,5 +570,7 @@ common / config / security → 业务层      ×
 - 「不要为未出现的需求堆 Factory/Strategy。」  
 - 「注释只是复述方法名，改成富文本写清失败行为与副作用。」  
 - 「方法体多步处理无步骤注释，补编号注释。」  
+- 「跨模块穿透了，只经对方 Service 门面。」  
+- 「单表查全局单表 mapper 就够了，不需要塞进模块内 mapper。」  
 
 有一条做不到 → 先改写法，再提交。

@@ -11,6 +11,7 @@
 
 - **优先构造器注入**（或 `@RequiredArgsConstructor` + `final` 字段），依赖在创建时可见、可测。
 - 注入接口或具体类按项目习惯，但依赖方向保持单向（不反向、不成环）。
+- 跨模块协作只注入对方模块 **Service 门面**，不注入对方模块内部类；全局单表 `mapper`（`extends BaseMapper`）可从根包注入到任何模块，但模块内联表 `mapper` 只在所属模块内使用。
 
 ### 禁止
 
@@ -108,6 +109,8 @@ public OrderDetailVO getOrderDetail(Long orderId) { ... }
 - 响应统一包装（响应体包装或统一的 `Result` 返回类型），全项目形态一致。
 
 禁止：在 Filter / Interceptor 里写完整业务用例（安全基础设施除外，且仍不塞业务规则）。
+
+> 架构归属：Controller 在所属业务模块 `controller/` 包；全局单表 Mapper 在根包 `mapper/`，模块内联表 Mapper 在模块 `mapper/` 包，跨模块只走 Service 门面（见《总体代码架构》）。
 
 ---
 
