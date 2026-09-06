@@ -229,18 +229,18 @@ export function createOrder(body: CreateOrderRequest) {
 
 #### 写法：编号步骤
 
-用**圈号数字 `①` `②` `③`**开头，一眼看出第几步、一共几步：
+用 **emoji 键帽数字 `1️⃣` `2️⃣` `3️⃣`** 开头，一眼看出第几步、一共几步：
 
 ```ts
-// ① 干什么
-// ② 干什么
-// ③ 干什么
+// 1️⃣ 干什么
+// 2️⃣ 干什么
+// 3️⃣ 干什么
 ```
 
 每步**先说干什么，必要时补为什么**：
 
 ```ts
-// ② 过滤已取消项：这些行不参与合计，提前剔除避免后面反复判断
+// 2️⃣ 过滤已取消项：这些行不参与合计，提前剔除避免后面反复判断
 ```
 
 **步骤数控制在 3~7 步。** 超过 7 步说明这个函数承担太多——先拆函数，而不是写第 8 步注释。
@@ -249,15 +249,15 @@ export function createOrder(body: CreateOrderRequest) {
 
 | 场景 | 符号 | 说明 |
 |------|------|------|
-| 步骤序号 | ① ② ③ | 默认用法，让步骤可扫读 |
+| 步骤序号 | 1️⃣ 2️⃣ 3️⃣ | 默认用法，让步骤可扫读 |
 | 警告 / 坑 | ⚠️ | 竞态、响应式陷阱、不可删的变通 |
 | 外部依赖 / 请求 | 🌐 | 跨服务调用（可选） |
 | 性能相关 | ⚡ | 这里做了优化或有性能约束（可选） |
 
-> **序号统一用圈号数字 `①` `②` `③`（U+2460 起），不用 emoji 键帽 `1️⃣` 等。**
-> 键帽序号是「数字 + 变体选择符 + 组合标记」的 emoji 序列，IDEA / VS Code 等编辑器的默认等宽字体不渲染，会显示成方框；圈号数字是普通文本字符，任何编辑器、任何字体、任何语言环境都能正常显示。
+> **序号统一用 emoji 键帽数字 `1️⃣` `2️⃣` `3️⃣`（1~9 为「数字 + U+FE0F + U+20E3」，10 用 `🔟`），不用圈号数字 `①` `②` 等。**
+> 全仓库（Java / Python / Vue / 学习项目规范）统一这一套，避免不同篇章两套编号。
 
-**步骤序号用圈号数字，是结构化用法，不算「滥用」**；装饰性 emoji 才受克制约束。
+**步骤序号用键帽数字，是结构化用法，不算「滥用」**；装饰性 emoji 才受克制约束。
 
 #### 完整示例
 
@@ -281,10 +281,10 @@ export function useOrderDetail(orderId: Ref<string>) {
   let seq = 0
 
   watch(orderId, async (id) => {
-    // ① 领取本次请求序号：id 快速切换时靠它丢弃旧响应
+    // 1️⃣ 领取本次请求序号：id 快速切换时靠它丢弃旧响应
     const my = ++seq
 
-    // ② 进入加载态并清空旧数据，避免刷新瞬间闪出上一个订单
+    // 2️⃣ 进入加载态并清空旧数据，避免刷新瞬间闪出上一个订单
     loading.value = true
     error.value = null
     order.value = null
@@ -292,7 +292,7 @@ export function useOrderDetail(orderId: Ref<string>) {
     try {
       const data = await fetchOrderDetail(id)
 
-      // ⚠️ ③ 过期响应直接丢弃：期间已切换到别的订单，写回会串数据
+      // ⚠️ 3️⃣ 过期响应直接丢弃：期间已切换到别的订单，写回会串数据
       if (my !== seq) return
 
       order.value = data
@@ -300,7 +300,7 @@ export function useOrderDetail(orderId: Ref<string>) {
       if (my !== seq) return
       error.value = toUiError(e)
     } finally {
-      // ④ 仅最后一次请求负责收尾，避免提前关掉 loading
+      // 4️⃣ 仅最后一次请求负责收尾，避免提前关掉 loading
       if (my === seq) loading.value = false
     }
   }, { immediate: true })
@@ -313,21 +313,21 @@ export function useOrderDetail(orderId: Ref<string>) {
 
 ```ts
 async function submit() {
-  // ① 防重复提交：isSubmitting 期间直接丢弃后续点击
+  // 1️⃣ 防重复提交：isSubmitting 期间直接丢弃后续点击
   if (isSubmitting.value) return
   isSubmitting.value = true
 
   try {
-    // ② 提交：服务端是价格与库存的唯一权威，前端不预计算
+    // 2️⃣ 提交：服务端是价格与库存的唯一权威，前端不预计算
     const created = await createOrder(form.value)
 
-    // ③ 成功后失效列表缓存，回到列表时能看到新建项
+    // 3️⃣ 成功后失效列表缓存，回到列表时能看到新建项
     await listStore.invalidate()
 
-    // ④ 跳转详情：创建成功后不能停在空表单让用户以为失败
+    // 4️⃣ 跳转详情：创建成功后不能停在空表单让用户以为失败
     await router.push({ name: 'OrderDetail', params: { id: created.id } })
   } catch (e) {
-    // ⚠️ ⑤ 校验错误映射到字段，其余走页级错误；不清空用户已填内容
+    // ⚠️ 5️⃣ 校验错误映射到字段，其余走页级错误；不清空用户已填内容
     const uiError = toUiError(e)
     if (uiError.fieldErrors) {
       applyFieldErrors(uiError.fieldErrors)
@@ -405,7 +405,7 @@ await fetchOrders()           // 调用接口
 
 - 错误注释比没有注释更糟。
 - 不要用注释弥补烂命名：先改成 `useOrderList` / `isSubmitting`，再补真正需要的「为什么」。
-- 重构后步骤编号要重新连续（不要出现 ① ② ④）。
+- 重构后步骤编号要重新连续（不要出现 1️⃣ 2️⃣ 4️⃣）。
 
 ### 3.8 各层注释重点
 
@@ -425,7 +425,7 @@ await fetchOrders()           // 调用接口
 ### 原则
 
 - **适当、少量、有辨识度**——不是装饰义务。
-- 步骤序号用圈号数字 `①` `②` `③`，属于**结构化用法**，不在此限（见 §3.4）。
+- 步骤序号用 emoji 键帽数字 `1️⃣` `2️⃣` `3️⃣`，属于**结构化用法**，不在此限（见 §3.4）。
 - **禁止**每条注释、每条日志都加；禁止一串表情刷屏。
 - 同一类事件尽量固定同一符号（例如失败用同一类）。
 
@@ -433,7 +433,7 @@ await fetchOrders()           // 调用接口
 
 | 场景 | 说明 |
 |------|------|
-| 行间步骤序号 | ① ② ③（默认用法） |
+| 行间步骤序号 | 1️⃣ 2️⃣ 3️⃣（默认用法） |
 | 警告性说明 | 竞态陷阱、响应式坑、不可删变通、安全注意（⚠️） |
 | 失败 / 降级 / 告警日志 | 让 error/warn 更好扫 |
 | 关键路径节点 | 鉴权就绪、应用启动完成（开发期） |
@@ -471,7 +471,7 @@ logger.error('❌ 创建订单失败', { orderId }, e)
 
 - [ ] composable / 非显而易见模块有文件头，写清职责与假设  
 - [ ] 导出 API 用富文本 TSDoc（`@param` / `@returns` / `@throws`），**无一行流**  
-- [ ] **函数体 ≥10 行或多逻辑段的，有编号步骤注释（① ② ③）**  
+- [ ] **函数体 ≥10 行或多逻辑段的，有编号步骤注释（1️⃣ 2️⃣ 3️⃣）**  
 - [ ] 步骤数 ≤ 7；超过说明函数该拆  
 - [ ] 分支 / 循环 / 异常处理写了「为什么走这个分支」  
 - [ ] 竞态、响应式陷阱、a11y、安全、变通有「为什么」  
@@ -483,7 +483,7 @@ logger.error('❌ 创建订单失败', { orderId }, e)
 - 「这是把函数名翻译了一遍，重写：写清失败行为、副作用、参数约束。」  
 - 「函数体 40 行零注释，补编号步骤注释。」  
 - 「步骤注释只写了『调用接口』，没说为什么这么调。」  
-- 「第 3 步删了，编号还是 ①②④，重排。」  
+- 「第 3 步删了，编号还是 1️⃣2️⃣4️⃣，重排。」  
 - 「7 步以上了，先拆函数再补注释。」  
 - 「失败日志缺 orderId。」  
 - 「生产路径留下 console.log(response)。」  

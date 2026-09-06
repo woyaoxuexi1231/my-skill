@@ -54,7 +54,7 @@ Router/WS → Depends(auth, db) → Service → Repository/ORM → DB
   → 包 / 模块 docstring
   → 类 / Protocol / 重要 Pydantic / settings
   → 公开或重要函数
-  → ①②③ 阶段标记 + 非显然 WHY
+  → 1️⃣2️⃣3️⃣ 阶段标记 + 非显然 WHY
   → 魔法值 / 特殊分支
 ```
 
@@ -85,7 +85,7 @@ Docstring 风格跟项目；无约定时后端优先 Google 风格。
 
 ## 6. 阶段标记与日志（文档任务内）
 
-### 6.1 ① ② ③
+### 6.1 1️⃣ 2️⃣ 3️⃣
 
 多步函数补中文阶段标题（规则同日志注释规范）。一步函数不强制。
 
@@ -117,7 +117,7 @@ Docstring 风格跟项目；无约定时后端优先 Google 风格。
 ```text
 1 入口与包架构
 2 安全 / 鉴权（含 deny/allow 日志）
-3 核心业务服务（docstring + ①②③ + 结果日志）
+3 核心业务服务（docstring + 1️⃣2️⃣3️⃣ + 结果日志）
 4 资金 / 结算 / ledger
 5 公开 REST / WebSocket
 6 事务与并发关键路径
@@ -169,7 +169,7 @@ Observability gaps reported
 
 ## 11. 最终原则
 
-> 理解先于文档 · 文档意图而非语法 · 多步函数要 ①②③  
+> 理解先于文档 · 文档意图而非语法 · 多步函数要 1️⃣2️⃣3️⃣  
 > 步骤说阶段 WHAT，决策说 WHY · 安全/事务/资金/worker 要显式说明与日志  
 > 不发明需求 · 不静默改行为 · 不制造注释污染 · 不把 Java 叙事硬套 Python  
 > 目标是让后人能安全地改、能运维——不是注释行数更多。
