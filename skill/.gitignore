@@ -1,0 +1,21 @@
+# 打包产物（pack-frontend-skills.ps1）
+dist/
+*.zip
+
+# Node（impeccable 等脚本可能产生）
+node_modules/
+.cache/
+
+# Python 脚本缓存 / 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 本地环境与日志
+.env
+.env.local
+*.log
