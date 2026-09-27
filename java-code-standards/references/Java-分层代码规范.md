@@ -75,23 +75,34 @@
 
 ### 1.1 统一响应与分页
 
-- 统一包装：如 `{ "code", "message", "data" }`（字段名以项目为准，全项目一致）。
+- 统一包装：如 `{ "code", "message", "data" }`（字段名以项目为准，全项目一致）。**所有业务接口（含分页列表）的 HTTP 出参都必须是 `Result<…>`**，保证调用方始终能读到 `code` / `message`。
 - 业务失败：明确 `code` + 可读 `message`；校验失败必须能被调用方感知，禁止「HTTP 200 + 空成功」掩盖业务失败（若项目约定失败也走 200+业务码，则业务码与 message 必须非成功态）。
-- 分页统一：如 `PageResult<T>{ records, total, pageNum, pageSize }`；列表接口禁止无界全量当默认。
+- 分页放在 `data` 里，不另开裸返回：统一为 `Result<PageResult<T>>`（`PageResult` 字段如 `records, total, pageNum, pageSize`，以项目为准）。列表接口禁止无界全量当默认。
+- **禁止**分页接口直接返回 `PageResult` / MyBatis-Plus `IPage` / `List`（缺少统一 `code`/`message`）。可在 Service 内用 MP `IPage` 查库，再转成 `PageResult` 装进 `Result`（若项目明确约定 `Result<IPage<VO>>` 亦可，但仍须包在 `Result` 内）。
 - 空结果返回**空列表 + total=0**，不返回 `null`，也不抛「没有数据」异常。
+
+```text
+✅ Result<OrderDetailVO>
+✅ Result<PageResult<OrderListItemVO>>
+❌ PageResult<OrderListItemVO>          // 分页也必须包在 Result 里
+❌ IPage<OrderListItemVO>               // 同上
+❌ Result 与 PageResult「二选一」当出参
+```
 
 ### 1.2 出入参必须是类型
 
 ```text
 ✅ Result<OrderDetailVO>
+✅ Result<PageResult<OrderListItemVO>>
 ✅ @Valid @RequestBody CreateOrderRequest
 ❌ Result<Map<String, Object>>
 ❌ @RequestBody Map<String, ?>
 ❌ 同一资源有的接口有 Request、有的用 Map
+❌ 直接返回 PageResult / IPage / List
 ```
 
-- 入参：对应 `dto/request` + `@Valid`（或统一校验）。
-- 出参：`Result` / `PageResult` + 模块 `dto/response` VO。
+- 入参：对应 `dto/request`（或 `dto/query`）+ `@Valid`（或统一校验）。
+- 出参：一律 `Result<…>`；详情/单对象用 `Result<VO>`，分页用 `Result<PageResult<VO>>`；VO 来自模块 `dto/response`。
 - Entity 不做出入参；禁止临时改成 `Map` 凑合。
 
 ### 1.3 路径与 HTTP 方法
@@ -404,8 +415,23 @@ public interface OrderDetailMapper {
 
 - 单表 CRUD/条件查询/条件更新：模块 Service 内用全局单表 mapper + Lambda 调对应 Entity 的 Mapper；**不要**为此在模块内 mapper 声明空壳方法再转 XML。
 - 一涉及第二张表的数据拼装：先写/调 **模块内 mapper + XML 联表（或一次 SQL）**，不要在 Service 里二次查询再 merge。
-- 分页：单表可用全局单表 mapper + MP 分页；联表分页在模块内 XML 用数据库分页，避免先全量再内存 page。
+- **分页优先走 MyBatis-Plus 分页能力**，不要在 Service 里手搓「一次 `selectCount` + 一次 `selectList`」再自己拼 `PageResult`（难看、易漏条件、两套 SQL 易漂移）。
+  - **单表**：全局单表 mapper + `Page` / `IPage` + `selectPage(page, wrapper)`（或项目等价的 MP 分页 API）；再把 `IPage` 映射为 `PageResult` 交 Controller 包进 `Result`。
+  - **联表 / 复杂 SQL**：模块内 mapper 方法接收 `IPage`（或项目分页参数），XML 只写业务 SELECT；由 **MP 分页插件**补 COUNT + LIMIT。禁止 Service 先 count 再 list 拼两次；禁止先全量查出再内存 page。
+  - 仅当 MP 分页插件确实无法覆盖（极罕见：特殊方言/双重分页语义）时，才允许显式两次查询，且须在注释写明原因。
 - 批量写用批量方法（如 MP `saveBatch` 并在 JDBC 参数开启批量），**禁止**循环里逐条 `insert`。
+
+```java
+// ✅ 单表：一次 selectPage，由 MP 处理 total + records
+Page<Order> page = new Page<>(query.getPageNum(), query.getPageSize());
+IPage<Order> ipage = orderMapper.selectPage(page, wrapper);
+return toPageResult(ipage); // Controller：return Result.ok(...)
+
+// ❌ 手搓两次查询再拼分页
+Long total = orderMapper.selectCount(wrapper);
+List<Order> records = orderMapper.selectList(wrapper.last("LIMIT ..."));
+return new PageResult<>(records, total, ...);
+```
 
 ---
 
@@ -415,7 +441,7 @@ public interface OrderDetailMapper {
 |----|--------|----------|------|
 | `config/` | 框架与中间件的全局装配类、开关 | 只装配与开关，**不写业务用例**（不查业务表、不推流程）；一类中间件一个配置类，名如 `RedisConfig` / `MybatisPlusConfig`；密钥、地址、超时全部走外部配置，不写死在代码里 | 禁 `AllConfig` 大杂烩；禁在配置类里调 Service |
 | `security/` | 认证鉴权基础设施、Filter、Token 处理 | 只做身份识别与权限判定，**不写业务用例**；日志不打 Token 与凭据 | 禁在业务 Service 里手搓鉴权；禁把业务规则塞进 Filter |
-| `common/` | 跨模块/全局真正共用的内核：统一响应 `Result`、分页 `PageResult`、业务异常、错误码、全局枚举/常量、领域事件、极少数无业务纯函数 | **跨模块/全局真正共用才上收**（响应体、异常体系这类每层都依赖的通用件必上收）；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个业务模块专有的规则 |
+| `common/` | 跨模块/全局真正共用的内核：统一响应 `Result`、分页 `PageResult`（只作 `Result.data`）、业务异常、错误码、全局枚举/常量、领域事件、极少数无业务纯函数 | **跨模块/全局真正共用才上收**（响应体、异常体系这类每层都依赖的通用件必上收）；保持极薄 | 禁 `CommonUtils` 之类无前缀垃圾桶；禁塞入某个业务模块专有的规则；禁 Controller 裸返回 `PageResult` |
 
 **判断口诀**：一个东西只有一处用 → 留在原地（模块内私有方法 / 局部）；确实多处复用且无业务语义 → `common`；带业务规则 → 归对应模块 Service，不是工具类。
 
@@ -521,7 +547,8 @@ public interface OrderDetailMapper {
 
 **Controller / API**
 
-- [ ] 统一 Result/分页；无 `Map`；校验失败可感知；列表有分页形态  
+- [ ] 出参一律 `Result<…>`；分页为 `Result<PageResult<…>>`（或项目约定的 `Result`+分页 data），无裸 `PageResult`/`IPage`/`List`  
+- [ ] 无 `Map`；校验失败可感知；列表默认分页形态  
 - [ ] 路径与 HTTP 方法语义正确；入参用模块 Request + `@Valid`  
 - [ ] Controller 无业务、无事务、无 SQL；当前用户从统一上下文取  
 
@@ -536,7 +563,7 @@ public interface OrderDetailMapper {
 
 - [ ] 全局单表 mapper 均 `extends BaseMapper`；无联表；无自定义方法改写简单单表  
 - [ ] 模块内 mapper 配 XML；SQL：联表完整 JOIN；无 `<sql>`/`<include>`；**无二次单表内存关联**；无 N+1；Stream 无 IO  
-- [ ] 计数用 COUNT；分页在数据库完成；批量写未退化为循环单条  
+- [ ] 计数用 COUNT；分页走 MP `selectPage`/`IPage`（联表 XML 接 `IPage`），未手搓 count+list 两次拼页；未全量再内存 page；批量写未退化为循环单条  
 
 **通用**
 
@@ -550,6 +577,8 @@ public interface OrderDetailMapper {
 **打回语**
 
 - 「对外契约出现 Map，打回。」  
+- 「分页接口必须 `Result` 包一层；禁止裸返回 PageResult/IPage/List。」  
+- 「分页用手搓 selectCount + selectList，改走 MyBatis-Plus selectPage / IPage。」  
 - 「展示拼接不应出现在 Service。」  
 - 「全局单表 Mapper 未继承 BaseMapper，打回。」  
 - 「全局单表 Mapper 写了联表，打回；联表放发起模块的模块内 mapper。」  

@@ -152,7 +152,7 @@ common / config / security → 业务模块                         ×（基础�
 | 写操作入参         | 模块 `dto/request`                | `Map`；`entity` 当入参           |
 | 接口出参 VO       | 模块 `dto/response`               | `Map`；`entity` 当出参           |
 | 列表查询条件        | 模块 `dto/query`                 | Query 与 VO 混用                |
-| 全局响应/分页体      | `common.result`                | 每模块各写一套                     |
+| 全局响应/分页体      | `common.result`（`Result` 包一切；分页用 `Result<PageResult>`） | 每模块各写一套；分页裸返回无 code |
 | 全局异常/错误码      | `common.exception`             | 每个 controller 手搓 try-catch   |
 | 全局枚举/常量       | `common.constant`              | 各模块复制一份                     |
 | 跨模块事件         | `common.event`                 | 模块间直接 new 织死耦合             |
@@ -184,7 +184,7 @@ common / config / security → 业务模块                         ×（基础�
 
 ### 5.3 `common/`
 
-- 放**跨模块 / 跨整个应用真正共用**的内核：统一响应 `Result`、分页 `PageResult`、全局异常处理器、业务异常与错误码、全局枚举/常量、领域事件、极少数无业务纯函数。
+- 放**跨模块 / 跨整个应用真正共用**的内核：统一响应 `Result`、分页 `PageResult`（**仅作 `Result.data`，不单独当 Controller 返回类型**）、全局异常处理器、业务异常与错误码、全局枚举/常量、领域事件、极少数无业务纯函数。
 
 - **哪些算「真正共用」**：响应体、异常体系这类**每个模块都会依赖的通用件**必上收；某个单独用例用的纯函数则不上收。
 

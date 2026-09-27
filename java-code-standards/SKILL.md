@@ -25,6 +25,8 @@ description: "Java 生产级编码与工程规范：模块化单体架构、分�
 
 - **持久化分轨**：单表 → 全局单表 `mapper`（`extends BaseMapper` + Lambda）；联表/复杂 SQL → 发起模块的模块内 `mapper` + XML。禁止「多次单表查后再内存关联」。
 
+- **统一 Result + MP 分页**：HTTP 出参一律 `Result<…>`；分页为 `Result<PageResult<…>>`（分页体在 `data` 内，禁止裸 `PageResult`/`IPage`）。单表用 `selectPage`/`IPage`，联表 XML 接 `IPage` 走分页插件；禁止 Service 手搓 `selectCount` + `selectList` 拼页。
+
 - **业务模块优先**：业务模块统一收在顶层 `modules/` 下，`entity` / 单表 `mapper` 等公共件外置，模块内再细分 controller/service/mapper/dto。禁止全局技术层里套业务子包。
 
 - **调度单向**：`controller → service → (模块 mapper | 全局单表 mapper) → DB`；跨模块只经对方 Service 门面。
